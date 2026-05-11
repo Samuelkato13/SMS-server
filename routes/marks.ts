@@ -6,7 +6,9 @@ export function registerMarksRoutes(app: Express) {
     try {
       const { schoolId, examId, studentId, classId, subjectId, term, academicYear } = req.query;
       if (!schoolId) return res.status(400).json({ message: "schoolId required" });
-      let query = `SELECT m.*, s.first_name, s.last_name, s.student_number, s.payment_code,
+      // `students.student_number` is not present in the Supabase/Postgres schema.
+      // Use `admission_number` and alias it for backward compatibility.
+      let query = `SELECT m.*, s.first_name, s.last_name, s.admission_number AS student_number, s.payment_code,
                           sub.name as subject_name, sub.code as subject_code,
                           e.title as exam_title, e.total_marks as exam_total_marks, e.exam_type
                    FROM marks m JOIN students s ON m.student_id=s.id
