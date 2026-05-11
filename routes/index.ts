@@ -1,6 +1,7 @@
 import { createServer } from "http";
 import type { Express } from "express";
 import type { Server } from "http";
+import { DEFAULT_USER_PASSWORD } from "../lib/constants";
 import { registerAuthRoutes } from "./auth";
 import { registerSchoolRoutes } from "./schools";
 import { registerUserRoutes } from "./users";
@@ -60,7 +61,9 @@ async function bootstrap() {
     `);
 
     // ── Seed real superadmin (no school attached) ────────────────────────────
-    const superHash = await bcrypt.hash("Skyvale@2025!", 10);
+    // Password is always reset to the platform default on boot so the SKYVALE
+    // admin can always sign in. Change it from the profile page after login.
+    const superHash = await bcrypt.hash(DEFAULT_USER_PASSWORD, 10);
     await pool.query(`DELETE FROM users WHERE username='super_admin' AND id!='f0000000-0000-0000-0000-000000000001'`);
     await pool.query(`
       INSERT INTO users (id, username, email, role, school_id, first_name, last_name, is_active, password_hash)
@@ -72,6 +75,17 @@ async function bootstrap() {
         password_hash=EXCLUDED.password_hash,
         is_active=true
     `, [superHash]);
+
+    // ── Backfill: any active user missing a password_hash gets the default ──
+    // This unlocks accounts that were created before passwords were required.
+    const defaultHash = await bcrypt.hash(DEFAULT_USER_PASSWORD, 10);
+    await pool.query(
+      `UPDATE users
+         SET password_hash = $1, updated_at = NOW()
+       WHERE (password_hash IS NULL OR password_hash = '')
+         AND is_active = true`,
+      [defaultHash]
+    );
 
     // ── Seed demo school users ───────────────────────────────────────────────
     const demoHash = await bcrypt.hash("demo123", 10);
@@ -450,7 +464,7 @@ async function bootstrap() {
       await pool.query(`UPDATE users SET username=$1 WHERE id=$2`, [finalUsername, u.id]);
     }
 
-    console.log("[bootstrap] DB ready. Super admin seeded. Demo passwords set.");
+    console.log(`[bootstrap] DB ready. Super admin seeded with default password. Demo passwords set.`);
   } catch (err: any) {
     console.error("[bootstrap] Error:", err);
     throw err;

@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import pool from "../db";
 import bcrypt from "bcryptjs";
+import { DEFAULT_USER_PASSWORD } from "../lib/constants";
 
 export function registerUserRoutes(app: Express) {
   app.get("/api/users", async (req, res) => {
@@ -43,14 +44,17 @@ export function registerUserRoutes(app: Express) {
           }
         }
       }
-      const passwordHash = password ? await bcrypt.hash(password, 10) : null;
+      // Every new user gets the platform-wide default password unless an
+      // explicit one was provided. They can change it from their profile.
+      const effectivePassword = password || DEFAULT_USER_PASSWORD;
+      const passwordHash = await bcrypt.hash(effectivePassword, 10);
       const result = await pool.query(
         `INSERT INTO users (username, email, role, school_id, first_name, last_name, phone, department, password_hash)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
         [username, email, role, schoolId, firstName, lastName, phone ?? null, department ?? null, passwordHash]
       );
       const { password_hash, ...newUser } = result.rows[0];
-      res.status(201).json(newUser);
+      res.status(201).json({ ...newUser, tempPassword: effectivePassword });
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 

@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import pool from "../db";
 import bcrypt from "bcryptjs";
+import { DEFAULT_USER_PASSWORD } from "../lib/constants";
 
 export function registerSignupRoutes(app: Express) {
   // POST /api/demo-request — save demo request to DB
@@ -80,7 +81,9 @@ export function registerSignupRoutes(app: Express) {
       const sr = req2.rows[0];
       if (sr.status === 'approved') return res.status(400).json({ message: "Already approved" });
 
-      const tempPassword = `ZaabuPay@${Math.random().toString(36).slice(2,8).toUpperCase()}`;
+      // Newly approved directors get the platform-wide default password and
+      // can update it from their profile after first sign-in.
+      const tempPassword = DEFAULT_USER_PASSWORD;
       const passwordHash = await bcrypt.hash(tempPassword, 10);
       const trialEnd = new Date(); trialEnd.setMonth(trialEnd.getMonth() + 1);
       const abbr = schoolAbbr || sr.school_name.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0,5);

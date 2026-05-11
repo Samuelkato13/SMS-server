@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import pool from "../db";
 import bcrypt from "bcryptjs";
+import { DEFAULT_USER_PASSWORD } from "../lib/constants";
 
 const auditLog = async (userEmail: string, action: string, details?: string, schoolName?: string, ip?: string) => {
   try {
@@ -94,8 +95,10 @@ export function registerAdminRoutes(app: Express) {
          bankAccountTitle??null, bankAccountType??null, bankAccountNumber??null]);
       const school = schoolResult.rows[0];
 
-      // Auto-create director account
-      const tempPassword = directorPassword || `ZaabuPay@${Math.random().toString(36).slice(2,8).toUpperCase()}`;
+      // Auto-create director account (uses the platform-wide default password
+      // unless an explicit one is supplied; the director can rotate it from
+      // their profile page after first login).
+      const tempPassword = directorPassword || DEFAULT_USER_PASSWORD;
       const hash = await bcrypt.hash(tempPassword, 10);
       const dirEmail = directorEmail || email;
       const firstName = directorFirstName || 'School';
@@ -183,11 +186,13 @@ export function registerAdminRoutes(app: Express) {
   app.post("/api/admin/users", async (req, res) => {
     try {
       const { firstName, lastName, email, role, schoolId, password, username: customUsername } = req.body;
-      if (!firstName || !email || !schoolId || !password)
-        return res.status(400).json({ message: "First name, email, school and password are required" });
+      if (!firstName || !email || !schoolId)
+        return res.status(400).json({ message: "First name, email and school are required" });
       const existing = await pool.query(`SELECT id FROM users WHERE email=$1`, [email.toLowerCase()]);
       if (existing.rows.length) return res.status(400).json({ message: "Email already in use" });
-      const hash = await bcrypt.hash(password, 10);
+      // Password is optional — new accounts default to the platform password.
+      const effectivePassword = password || DEFAULT_USER_PASSWORD;
+      const hash = await bcrypt.hash(effectivePassword, 10);
 
       // Get school abbreviation for username generation
       const schoolRes = await pool.query(`SELECT abbreviation FROM schools WHERE id=$1`, [schoolId]);
@@ -204,7 +209,7 @@ export function registerAdminRoutes(app: Express) {
         [username, email.toLowerCase(), role, schoolId, firstName, lastName??'', hash]);
       await auditLog('superadmin@skyvale.com', 'create_user', `Created ${role}: ${email} (username: ${username})`);
       const { password_hash, ...safeUser } = result.rows[0];
-      res.json({ ...safeUser, tempPassword: password });
+      res.json({ ...safeUser, tempPassword: effectivePassword });
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });
 
