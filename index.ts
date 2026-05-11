@@ -2,8 +2,7 @@ import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import nodePath from "path";
 import { registerRoutes } from "./routes/index";
-
-const log = (msg: string) => console.log(`[server] ${msg}`);
+import { setupVite, serveStatic, log } from "./vite";
 
 const app = express();
 app.use(express.json());
@@ -53,6 +52,13 @@ async function main() {
     throw err;
   });
 
+  // Setup Vite in development, serve static files in production
+  if (app.get("env") === "development") {
+    await setupVite(app, server);
+  } else {
+    serveStatic(app);
+  }
+
   const port = parseInt(process.env.PORT || '5000', 10);
   server.listen({
     port,
@@ -63,6 +69,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("[server] Failed to start:", err);
+  console.error("[server] Failed to start:", err?.message ?? err);
+  if (err?.stack) console.error(err.stack);
   process.exit(1);
 });

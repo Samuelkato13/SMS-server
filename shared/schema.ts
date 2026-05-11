@@ -1,17 +1,19 @@
 import { z } from "zod";
 
+// User Roles
 export const UserRole = z.enum([
   "super_admin",
   "admin",
-  "director",
+  "director", 
   "head_teacher",
   "class_teacher",
   "subject_teacher",
-  "bursar",
+  "bursar"
 ]);
 
 export type UserRole = z.infer<typeof UserRole>;
 
+// School schema
 export const schoolSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -22,15 +24,13 @@ export const schoolSchema = z.object({
   address: z.string(),
   subdomain: z.string().optional(),
   motto: z.string().optional(),
-  schoolType: z
-    .enum(["nursery", "primary", "secondary", "nursery_primary", "primary_secondary", "all"])
-    .optional(),
-  sectionType: z.enum(["day", "boarding", "day_boarding"]).optional(),
+  schoolType: z.enum(['nursery', 'primary', 'secondary', 'nursery_primary', 'primary_secondary', 'all']).optional(),
+  sectionType: z.enum(['day', 'boarding', 'day_boarding']).optional(),
   bankAccountTitle: z.string().optional(),
-  bankAccountType: z.enum(["savings", "current", "fixed_deposit"]).optional(),
+  bankAccountType: z.enum(['savings', 'current', 'fixed_deposit']).optional(),
   bankAccountNumber: z.string().optional(),
   bankName: z.string().optional(),
-  status: z.enum(["active", "trial", "suspended", "expired"]).default("active"),
+  status: z.enum(['active', 'trial', 'suspended', 'expired']).default('active'),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
@@ -44,6 +44,7 @@ export const insertSchoolSchema = schoolSchema.omit({
 export type School = z.infer<typeof schoolSchema>;
 export type InsertSchool = z.infer<typeof insertSchoolSchema>;
 
+// User schema
 export const userSchema = z.object({
   id: z.string(),
   username: z.string(),
@@ -66,6 +67,7 @@ export const insertUserSchema = userSchema.omit({
 export type User = z.infer<typeof userSchema>;
 export type InsertUser = z.infer<typeof insertUserSchema>;
 
+// Student schema
 export const studentSchema = z.object({
   id: z.string(),
   firstName: z.string(),
@@ -80,7 +82,7 @@ export const studentSchema = z.object({
   guardianPhone: z.string(),
   guardianEmail: z.string().email().optional(),
   address: z.string(),
-  section: z.enum(["day", "boarding"]).optional(),
+  section: z.enum(['day', 'boarding']).optional(),
   isActive: z.boolean().default(true),
   createdAt: z.date(),
   updatedAt: z.date(),
@@ -96,6 +98,7 @@ export const insertStudentSchema = studentSchema.omit({
 export type Student = z.infer<typeof studentSchema>;
 export type InsertStudent = z.infer<typeof insertStudentSchema>;
 
+// Class schema
 export const classSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -118,6 +121,7 @@ export const insertClassSchema = classSchema.omit({
 export type Class = z.infer<typeof classSchema>;
 export type InsertClass = z.infer<typeof insertClassSchema>;
 
+// Subject schema
 export const subjectSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -138,6 +142,7 @@ export const insertSubjectSchema = subjectSchema.omit({
 export type Subject = z.infer<typeof subjectSchema>;
 export type InsertSubject = z.infer<typeof insertSubjectSchema>;
 
+// Exam schema
 export const examSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -163,6 +168,7 @@ export const insertExamSchema = examSchema.omit({
 export type Exam = z.infer<typeof examSchema>;
 export type InsertExam = z.infer<typeof insertExamSchema>;
 
+// Mark schema
 export const markSchema = z.object({
   id: z.string(),
   examId: z.string(),
@@ -184,6 +190,7 @@ export const insertMarkSchema = markSchema.omit({
 export type Mark = z.infer<typeof markSchema>;
 export type InsertMark = z.infer<typeof insertMarkSchema>;
 
+// Attendance schema
 export const attendanceSchema = z.object({
   id: z.string(),
   studentId: z.string(),
@@ -206,6 +213,7 @@ export const insertAttendanceSchema = attendanceSchema.omit({
 export type Attendance = z.infer<typeof attendanceSchema>;
 export type InsertAttendance = z.infer<typeof insertAttendanceSchema>;
 
+// Fee Structure schema
 export const feeStructureSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -229,6 +237,7 @@ export const insertFeeStructureSchema = feeStructureSchema.omit({
 export type FeeStructure = z.infer<typeof feeStructureSchema>;
 export type InsertFeeStructure = z.infer<typeof insertFeeStructureSchema>;
 
+// Payment schema
 export const paymentSchema = z.object({
   id: z.string(),
   studentId: z.string(),
@@ -256,19 +265,21 @@ export const insertPaymentSchema = paymentSchema.omit({
 export type Payment = z.infer<typeof paymentSchema>;
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 
+// Subscription schema
 export const subscriptionSchema = z.object({
   id: z.string(),
   schoolId: z.string(),
-  plan: z.enum(["trial", "basic", "professional", "enterprise"]),
+  plan: z.enum(['trial', 'basic', 'professional', 'enterprise']),
   startDate: z.date(),
   endDate: z.date(),
-  status: z.enum(["active", "expired", "cancelled"]),
+  status: z.enum(['active', 'expired', 'cancelled']),
   amountUgx: z.number(),
   createdAt: z.date(),
 });
 
 export type Subscription = z.infer<typeof subscriptionSchema>;
 
+// Audit Log schema
 export const auditLogSchema = z.object({
   id: z.string(),
   userId: z.string().optional(),
@@ -281,4 +292,3 @@ export const auditLogSchema = z.object({
 });
 
 export type AuditLog = z.infer<typeof auditLogSchema>;
-

@@ -7,8 +7,8 @@ export function registerMarksRoutes(app: Express) {
     try {
       const { schoolId, examId, studentId, classId, subjectId, term, academicYear } = req.query;
       if (!schoolId) return res.status(400).json({ message: "schoolId required" });
-      // `students.student_number` is not present in the Supabase/Postgres schema.
-      // Use `admission_number` and alias it for backward compatibility.
+      // `students.student_number` does not exist in the current Postgres schema.
+      // Use `admission_number` (kept for compatibility by aliasing to student_number in the response).
       let query = `SELECT m.*, s.first_name, s.last_name, s.admission_number AS student_number, s.payment_code,
                           sub.name as subject_name, sub.code as subject_code,
                           e.title as exam_title, e.total_marks as exam_total_marks, e.exam_type
@@ -35,7 +35,6 @@ export function registerMarksRoutes(app: Express) {
       if (!Array.isArray(entries) || !examId || !subjectId || !classId || !schoolId)
         return res.status(400).json({ message: "Missing required fields" });
 
-      // Guard: class/subject assignments + legacy subjects.teacher_id (admin/director/HT bypass)
       if (recordedBy) {
         const allowed = await canUserRecordMarksForClassSubject(
           String(recordedBy),
@@ -45,8 +44,7 @@ export function registerMarksRoutes(app: Express) {
         );
         if (!allowed) {
           return res.status(403).json({
-            message:
-              "You are not allowed to record marks for this class/subject. Ask admin, director, or head teacher to add a class-teacher or subject-class assignment for you.",
+            message: "Not allowed to record marks for this class and subject. Ask your director or head teacher to assign you as class teacher or to the subject for this class.",
           });
         }
       }
@@ -168,7 +166,9 @@ export function registerMarksRoutes(app: Express) {
           String(schoolId)
         );
         if (!allowed) {
-          return res.status(403).json({ message: "Not allowed to record marks for this class/subject" });
+          return res.status(403).json({
+            message: "Not allowed to record marks for this class and subject.",
+          });
         }
       }
       const result = await pool.query(

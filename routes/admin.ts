@@ -2,6 +2,7 @@ import type { Express } from "express";
 import pool from "../db";
 import bcrypt from "bcryptjs";
 import { DEFAULT_USER_PASSWORD } from "../lib/constants";
+import { loadGlobalSubjectTemplates } from "../lib/globalSubjectTemplates";
 
 const auditLog = async (userEmail: string, action: string, details?: string, schoolName?: string, ip?: string) => {
   try {
@@ -319,11 +320,10 @@ export function registerAdminRoutes(app: Express) {
       result.rows.forEach((r: any) => {
         try { settings[r.key] = JSON.parse(r.value); } catch (_) { settings[r.key] = r.value; }
       });
-      if (!settings.globalSubjects) settings.globalSubjects = [
-        { name: 'Mathematics', code: 'MATH' }, { name: 'English Language', code: 'ENG' },
-        { name: 'Science', code: 'SCI' }, { name: 'Social Studies', code: 'SST' },
-        { name: 'Religious Education', code: 'RE' },
-      ];
+      // Same catalog schools use via GET /api/subject-templates (stored in global_settings, else defaults).
+      if (settings.globalSubjects === undefined || settings.globalSubjects === null) {
+        settings.globalSubjects = await loadGlobalSubjectTemplates(pool);
+      }
       res.json(settings);
     } catch (err: any) { res.status(500).json({ message: err.message }); }
   });

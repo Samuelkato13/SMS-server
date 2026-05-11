@@ -1,189 +1,217 @@
 import type { Express } from "express";
 import pool from "../db";
 
-const MANAGER_ROLES = new Set(["super_admin", "admin", "director", "head_teacher"]);
+const MANAGER_ROLES = ["super_admin", "admin", "director", "head_teacher"];
 
-async function assertCanManageAssignments(assignerId: string | undefined, schoolId: string): Promise<{ ok: boolean; message?: string }> {
-  if (!assignerId) return { ok: false, message: "assignerUserId required" };
-  const r = await pool.query(
-    `SELECT role, school_id FROM users WHERE id = $1 AND COALESCE(is_active, true) = true`,
-    [assignerId]
-  );
-  const u = r.rows[0];
-  if (!u) return { ok: false, message: "Assigner not found" };
-  if (!MANAGER_ROLES.has(u.role)) return { ok: false, message: "Only admin, director, or head teacher can manage teaching assignments" };
-  if (u.role === "super_admin") return { ok: true };
-  if (String(u.school_id) !== String(schoolId)) return { ok: false, message: "Assigner must belong to this school" };
-  return { ok: true };
+async function assertCanManageAssignments(assignerUserId: string, schoolId: string): Promise<void> {
+  const r = await pool.query(`SELECT role, school_id FROM users WHERE id=$1`, [assignerUserId]);
+  const row = r.rows[0];
+  if (!row) {
+    const e = new Error("Assigner not found") as Error & { status?: number };
+    e.status = 400;
+    throw e;
+  }
+  if (!MANAGER_ROLES.includes(row.role)) {
+    const e = new Error("Forbidden") as Error & { status?: number };
+    e.status = 403;
+    throw e;
+  }
+  if (row.role !== "super_admin" && String(row.school_id) !== String(schoolId)) {
+    const e = new Error("School mismatch") as Error & { status?: number };
+    e.status = 403;
+    throw e;
+  }
 }
 
-export function registerStaffAssignmentRoutes(app: Express) {
-  app.get("/api/staff-assignments", async (req, res) => {
-    try {
-      const { schoolId } = req.query;
-      if (!schoolId) return res.status(400).json({ message: "schoolId required" });
-
-      const [ct, sc] = await Promise.all([
-        pool.query(
-          `SELECT a.id, a.user_id, a.class_id, a.school_id, a.created_at,
-                  u.first_name, u.last_name, u.username, u.role as user_role,
-                  c.name as class_name, c.level as class_level
-           FROM staff_class_teacher_assignments a
-           JOIN users u ON u.id = a.user_id
-           JOIN classes c ON c.id = a.class_id
-           WHERE a.school_id = $1
-           ORDER BY c.name, u.last_name`,
-          [schoolId]
-        ),
-        pool.query(
-          `SELECT a.id, a.user_id, a.class_id, a.subject_id, a.school_id, a.created_at,
-                  u.first_name, u.last_name, u.username, u.role as user_role,
-                  c.name as class_name, sub.name as subject_name, sub.code as subject_code
-           FROM staff_subject_class_assignments a
-           JOIN users u ON u.id = a.user_id
-           JOIN classes c ON c.id = a.class_id
-           JOIN subjects sub ON sub.id = a.subject_id
-           WHERE a.school_id = $1
-           ORDER BY c.name, sub.name, u.last_name`,
-          [schoolId]
-        ),
-      ]);
-
-      res.json({
-        classTeachers: ct.rows,
-        subjectClassTeachers: sc.rows,
-      });
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
-
-  app.post("/api/staff-assignments/class-teacher", async (req, res) => {
-    try {
-      const { userId, classId, schoolId, assignerUserId } = req.body || {};
-      if (!userId || !classId || !schoolId || !assignerUserId) {
-        return res.status(400).json({ message: "userId, classId, schoolId, assignerUserId required" });
-      }
-      const gate = await assertCanManageAssignments(assignerUserId, schoolId);
-      if (!gate.ok) return res.status(403).json({ message: gate.message });
-
-      const ins = await pool.query(
-        `INSERT INTO staff_class_teacher_assignments (school_id, user_id, class_id, assigned_by)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (user_id, class_id) DO UPDATE SET assigned_by = EXCLUDED.assigned_by
-         RETURNING *`,
-        [schoolId, userId, classId, assignerUserId]
-      );
-
-      await pool.query(
-        `UPDATE classes SET class_teacher_id = $1 WHERE id = $2 AND school_id = $3 AND class_teacher_id IS NULL`,
-        [userId, classId, schoolId]
-      );
-
-      res.status(201).json(ins.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
-
-  app.delete("/api/staff-assignments/class-teacher/:id", async (req, res) => {
-    try {
-      const { assignerUserId, schoolId } = req.query as Record<string, string>;
-      if (!assignerUserId || !schoolId) {
-        return res.status(400).json({ message: "assignerUserId and schoolId query params required" });
-      }
-      const gate = await assertCanManageAssignments(assignerUserId, schoolId);
-      if (!gate.ok) return res.status(403).json({ message: gate.message });
-
-      const row = await pool.query(
-        `DELETE FROM staff_class_teacher_assignments WHERE id = $1 AND school_id = $2 RETURNING class_id, user_id`,
-        [req.params.id, schoolId]
-      );
-      if (!row.rows.length) return res.status(404).json({ message: "Assignment not found" });
-
-      res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
-
-  app.post("/api/staff-assignments/subject-class", async (req, res) => {
-    try {
-      const { userId, classId, subjectId, schoolId, assignerUserId } = req.body || {};
-      if (!userId || !classId || !subjectId || !schoolId || !assignerUserId) {
-        return res.status(400).json({ message: "userId, classId, subjectId, schoolId, assignerUserId required" });
-      }
-      const gate = await assertCanManageAssignments(assignerUserId, schoolId);
-      if (!gate.ok) return res.status(403).json({ message: gate.message });
-
-      const ins = await pool.query(
-        `INSERT INTO staff_subject_class_assignments (school_id, user_id, class_id, subject_id, assigned_by)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (user_id, class_id, subject_id) DO UPDATE SET assigned_by = EXCLUDED.assigned_by
-         RETURNING *`,
-        [schoolId, userId, classId, subjectId, assignerUserId]
-      );
-
-      res.status(201).json(ins.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
-
-  app.delete("/api/staff-assignments/subject-class/:id", async (req, res) => {
-    try {
-      const { assignerUserId, schoolId } = req.query as Record<string, string>;
-      if (!assignerUserId || !schoolId) {
-        return res.status(400).json({ message: "assignerUserId and schoolId query params required" });
-      }
-      const gate = await assertCanManageAssignments(assignerUserId, schoolId);
-      if (!gate.ok) return res.status(403).json({ message: gate.message });
-
-      const row = await pool.query(
-        `DELETE FROM staff_subject_class_assignments WHERE id = $1 AND school_id = $2 RETURNING id`,
-        [req.params.id, schoolId]
-      );
-      if (!row.rows.length) return res.status(404).json({ message: "Assignment not found" });
-
-      res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
-}
-
-/** Used by marks routes — exported for tests / reuse */
+/** Who may record marks for a given class + subject at a school. */
 export async function canUserRecordMarksForClassSubject(
   userId: string,
   subjectId: string,
   classId: string,
   schoolId: string
 ): Promise<boolean> {
-  const ur = await pool.query(`SELECT role FROM users WHERE id = $1 AND COALESCE(is_active, true) = true`, [userId]);
-  const role = ur.rows[0]?.role as string | undefined;
-  if (!role) return false;
+  if (!userId || !subjectId || !classId || !schoolId) return false;
+
+  const u = await pool.query(`SELECT role, school_id FROM users WHERE id=$1`, [userId]);
+  const user = u.rows[0];
+  if (!user) return false;
+  if (String(user.school_id) !== String(schoolId)) return false;
+
+  const role: string = user.role;
   if (["super_admin", "admin", "director", "head_teacher"].includes(role)) return true;
 
-  const legacy = await pool.query(
-    `SELECT teacher_id FROM subjects WHERE id = $1 AND school_id = $2`,
-    [subjectId, schoolId]
-  );
-  if (legacy.rows[0]?.teacher_id && String(legacy.rows[0].teacher_id) === String(userId)) return true;
+  const sub = await pool.query(`SELECT teacher_id FROM subjects WHERE id=$1 AND school_id=$2`, [subjectId, schoolId]);
+  const subjectTeacherId = sub.rows[0]?.teacher_id;
+  if (subjectTeacherId && String(subjectTeacherId) === String(userId) && role === "subject_teacher") {
+    return true;
+  }
 
-  const sc = await pool.query(
+  const scc = await pool.query(
     `SELECT 1 FROM staff_subject_class_assignments
-     WHERE user_id = $1 AND subject_id = $2 AND class_id = $3 AND school_id = $4`,
-    [userId, subjectId, classId, schoolId]
+     WHERE user_id=$1 AND class_id=$2 AND subject_id=$3 AND school_id=$4`,
+    [userId, classId, subjectId, schoolId]
   );
-  if (sc.rows.length) return true;
+  if (scc.rows.length) {
+    return ["subject_teacher", "class_teacher"].includes(role);
+  }
 
-  const ct = await pool.query(
-    `SELECT 1 FROM staff_class_teacher_assignments WHERE user_id = $1 AND class_id = $2 AND school_id = $3`,
+  const ctStaff = await pool.query(
+    `SELECT 1 FROM staff_class_teacher_assignments WHERE user_id=$1 AND class_id=$2 AND school_id=$3`,
     [userId, classId, schoolId]
   );
-  if (ct.rows.length) {
+  if (ctStaff.rows.length) {
+    return ["class_teacher", "subject_teacher", "bursar"].includes(role);
+  }
+
+  const cls = await pool.query(`SELECT class_teacher_id FROM classes WHERE id=$1 AND school_id=$2`, [classId, schoolId]);
+  if (cls.rows[0]?.class_teacher_id && String(cls.rows[0].class_teacher_id) === String(userId)) {
     return ["class_teacher", "subject_teacher", "bursar"].includes(role);
   }
 
   return false;
+}
+
+export function registerStaffAssignmentRoutes(app: Express) {
+  app.get("/api/staff-assignments", async (req, res) => {
+    try {
+      const { schoolId, managerUserId } = req.query;
+      if (!schoolId || !managerUserId) {
+        return res.status(400).json({ message: "schoolId and managerUserId required" });
+      }
+      await assertCanManageAssignments(String(managerUserId), String(schoolId));
+
+      const classTeachers = await pool.query(
+        `SELECT scta.*, u.first_name, u.last_name, u.role AS user_role, c.name AS class_name
+         FROM staff_class_teacher_assignments scta
+         JOIN users u ON scta.user_id = u.id
+         JOIN classes c ON scta.class_id = c.id
+         WHERE scta.school_id = $1
+         ORDER BY c.name, u.last_name`,
+        [schoolId]
+      );
+      const subjectClassTeachers = await pool.query(
+        `SELECT ssca.*, u.first_name, u.last_name, u.role AS user_role, c.name AS class_name, sub.name AS subject_name
+         FROM staff_subject_class_assignments ssca
+         JOIN users u ON ssca.user_id = u.id
+         JOIN classes c ON ssca.class_id = c.id
+         JOIN subjects sub ON ssca.subject_id = sub.id
+         WHERE ssca.school_id = $1
+         ORDER BY u.last_name, c.name, sub.name`,
+        [schoolId]
+      );
+      res.json({ classTeachers: classTeachers.rows, subjectClassTeachers: subjectClassTeachers.rows });
+    } catch (e: any) {
+      const status = e.status ?? 500;
+      res.status(status).json({ message: e.message || "Error" });
+    }
+  });
+
+  app.post("/api/staff-assignments/class-teacher", async (req, res) => {
+    try {
+      const { userId, classId, schoolId, assignerUserId } = req.body;
+      if (!userId || !classId || !schoolId || !assignerUserId) {
+        return res.status(400).json({ message: "userId, classId, schoolId, assignerUserId required" });
+      }
+      await assertCanManageAssignments(String(assignerUserId), String(schoolId));
+
+      const v = await pool.query(
+        `SELECT 1 FROM users u
+         JOIN classes c ON c.id=$2 AND c.school_id=$3
+         WHERE u.id=$1 AND u.school_id=$3`,
+        [userId, classId, schoolId]
+      );
+      if (!v.rows.length) return res.status(400).json({ message: "User or class not in this school" });
+
+      const ins = await pool.query(
+        `INSERT INTO staff_class_teacher_assignments (user_id, class_id, school_id, assigned_by)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (user_id, class_id) DO UPDATE SET
+           school_id = EXCLUDED.school_id,
+           assigned_by = EXCLUDED.assigned_by,
+           updated_at = NOW()
+         RETURNING *`,
+        [userId, classId, schoolId, assignerUserId]
+      );
+      await pool.query(
+        `UPDATE classes SET class_teacher_id=$1 WHERE id=$2 AND school_id=$3 AND class_teacher_id IS NULL`,
+        [userId, classId, schoolId]
+      );
+      res.json(ins.rows[0]);
+    } catch (e: any) {
+      const status = e.status ?? 500;
+      res.status(status).json({ message: e.message || "Error" });
+    }
+  });
+
+  app.delete("/api/staff-assignments/class-teacher/:id", async (req, res) => {
+    try {
+      const { assignerUserId, schoolId } = req.query;
+      if (!assignerUserId || !schoolId) {
+        return res.status(400).json({ message: "assignerUserId and schoolId required" });
+      }
+      await assertCanManageAssignments(String(assignerUserId), String(schoolId));
+      const del = await pool.query(
+        `DELETE FROM staff_class_teacher_assignments WHERE id=$1 AND school_id=$2 RETURNING id`,
+        [req.params.id, schoolId]
+      );
+      if (!del.rowCount) return res.status(404).json({ message: "Not found" });
+      res.json({ success: true });
+    } catch (e: any) {
+      const status = e.status ?? 500;
+      res.status(status).json({ message: e.message || "Error" });
+    }
+  });
+
+  app.post("/api/staff-assignments/subject-class", async (req, res) => {
+    try {
+      const { userId, classId, subjectId, schoolId, assignerUserId } = req.body;
+      if (!userId || !classId || !subjectId || !schoolId || !assignerUserId) {
+        return res.status(400).json({ message: "userId, classId, subjectId, schoolId, assignerUserId required" });
+      }
+      await assertCanManageAssignments(String(assignerUserId), String(schoolId));
+
+      const v = await pool.query(
+        `SELECT 1 FROM users u
+         JOIN classes c ON c.id=$2 AND c.school_id=$3
+         JOIN subjects s ON s.id=$4 AND s.school_id=$3
+         WHERE u.id=$1 AND u.school_id=$3`,
+        [userId, classId, schoolId, subjectId]
+      );
+      if (!v.rows.length) return res.status(400).json({ message: "User, class, or subject not in this school" });
+
+      const ins = await pool.query(
+        `INSERT INTO staff_subject_class_assignments (user_id, class_id, subject_id, school_id, assigned_by)
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (user_id, class_id, subject_id) DO UPDATE SET
+           school_id = EXCLUDED.school_id,
+           assigned_by = EXCLUDED.assigned_by,
+           updated_at = NOW()
+         RETURNING *`,
+        [userId, classId, subjectId, schoolId, assignerUserId]
+      );
+      res.json(ins.rows[0]);
+    } catch (e: any) {
+      const status = e.status ?? 500;
+      res.status(status).json({ message: e.message || "Error" });
+    }
+  });
+
+  app.delete("/api/staff-assignments/subject-class/:id", async (req, res) => {
+    try {
+      const { assignerUserId, schoolId } = req.query;
+      if (!assignerUserId || !schoolId) {
+        return res.status(400).json({ message: "assignerUserId and schoolId required" });
+      }
+      await assertCanManageAssignments(String(assignerUserId), String(schoolId));
+      const del = await pool.query(
+        `DELETE FROM staff_subject_class_assignments WHERE id=$1 AND school_id=$2 RETURNING id`,
+        [req.params.id, schoolId]
+      );
+      if (!del.rowCount) return res.status(404).json({ message: "Not found" });
+      res.json({ success: true });
+    } catch (e: any) {
+      const status = e.status ?? 500;
+      res.status(status).json({ message: e.message || "Error" });
+    }
+  });
 }

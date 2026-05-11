@@ -261,6 +261,29 @@ async function bootstrap() {
       )
     `);
 
+    // Subjects — required by marks, staff_subject_class_assignments, timetable (FKs).
+    // Some deployments only had subjects from manual SQL; ensure table + columns exist.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS subjects (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(255) NOT NULL,
+        code VARCHAR(50) NOT NULL,
+        description TEXT,
+        school_id UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+        teacher_id UUID REFERENCES users(id) ON DELETE SET NULL,
+        category VARCHAR(50) DEFAULT 'Core',
+        is_compulsory BOOLEAN DEFAULT true,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await pool.query(`ALTER TABLE subjects ADD COLUMN IF NOT EXISTS description TEXT`);
+    await pool.query(`ALTER TABLE subjects ADD COLUMN IF NOT EXISTS teacher_id UUID`);
+    await pool.query(`ALTER TABLE subjects ADD COLUMN IF NOT EXISTS category VARCHAR(50) DEFAULT 'Core'`);
+    await pool.query(`ALTER TABLE subjects ADD COLUMN IF NOT EXISTS is_compulsory BOOLEAN DEFAULT true`);
+    await pool.query(`ALTER TABLE subjects ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`);
+    await pool.query(`ALTER TABLE subjects ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`);
+
     // Marks columns
     await pool.query(`ALTER TABLE marks ADD COLUMN IF NOT EXISTS subject_teacher_remarks TEXT`);
     await pool.query(`ALTER TABLE marks ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT false`);
@@ -422,32 +445,34 @@ async function bootstrap() {
       )
     `);
 
-    // Staff teaching assignments (Option A: same person can be class teacher + multiple subject-class loads)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS staff_class_teacher_assignments (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        school_id UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
         user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         class_id UUID NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
-        assigned_by UUID REFERENCES users(id),
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        CONSTRAINT staff_class_teacher_assignments_user_class UNIQUE (user_id, class_id)
-      )
-    `);
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS staff_subject_class_assignments (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         school_id UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
-        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        class_id UUID NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
-        subject_id UUID NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
         assigned_by UUID REFERENCES users(id),
         created_at TIMESTAMPTZ DEFAULT NOW(),
-        CONSTRAINT staff_subject_class_assignments_user_class_sub UNIQUE (user_id, class_id, subject_id)
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE (user_id, class_id)
       )
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_staff_ct_school ON staff_class_teacher_assignments(school_id)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_staff_ct_user ON staff_class_teacher_assignments(user_id)`);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS staff_subject_class_assignments (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        class_id UUID NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+        subject_id UUID NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+        school_id UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+        assigned_by UUID REFERENCES users(id),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE (user_id, class_id, subject_id)
+      )
+    `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_staff_sc_school ON staff_subject_class_assignments(school_id)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_staff_sc_user ON staff_subject_class_assignments(user_id)`);
 

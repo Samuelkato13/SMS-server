@@ -68,11 +68,20 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 export function serveStatic(app: Express) {
-  const distPath = path.resolve(import.meta.dirname, "public");
+  // Bundled output is `dist/index.js` → dirname is `dist/` and static assets live in `dist/public/`.
+  // Some hosts run with a different cwd; try a few fallbacks so production does not crash silently.
+  const candidates = [
+    path.resolve(import.meta.dirname, "public"),
+    path.resolve(process.cwd(), "dist", "public"),
+    path.join(process.cwd(), "dist", "public"),
+  ];
+  const distPath = candidates.find((p) => fs.existsSync(p));
 
-  if (!fs.existsSync(distPath)) {
+  if (!distPath) {
     throw new Error(
-      `Could not find the build directory: ${distPath}, make sure to build the client first`,
+      `Could not find the Vite client build (index.html + assets). Tried:\n${candidates.join(
+        "\n",
+      )}\ncwd=${process.cwd()}\nMake sure the Render build command runs \`npm run build\` from the repo root (vite must emit dist/public).`,
     );
   }
 
