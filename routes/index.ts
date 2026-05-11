@@ -19,6 +19,7 @@ import { registerUploadRoutes } from "./upload";
 import { registerPromotionRoutes } from "./promotions";
 import { registerGroupRoutes } from "./groups";
 import { registerTimetableRoutes } from "./timetable";
+import { registerStaffAssignmentRoutes } from "./staffAssignments";
 import pool from "../db";
 import bcrypt from "bcryptjs";
 
@@ -421,6 +422,35 @@ async function bootstrap() {
       )
     `);
 
+    // Staff teaching assignments (Option A: same person can be class teacher + multiple subject-class loads)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS staff_class_teacher_assignments (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        school_id UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        class_id UUID NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+        assigned_by UUID REFERENCES users(id),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        CONSTRAINT staff_class_teacher_assignments_user_class UNIQUE (user_id, class_id)
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS staff_subject_class_assignments (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        school_id UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        class_id UUID NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+        subject_id UUID NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+        assigned_by UUID REFERENCES users(id),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        CONSTRAINT staff_subject_class_assignments_user_class_sub UNIQUE (user_id, class_id, subject_id)
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_staff_ct_school ON staff_class_teacher_assignments(school_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_staff_ct_user ON staff_class_teacher_assignments(user_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_staff_sc_school ON staff_subject_class_assignments(school_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_staff_sc_user ON staff_subject_class_assignments(user_id)`);
+
     // Demo school subscription
     await pool.query(`
       INSERT INTO subscriptions (school_id, plan, start_date, end_date, status, amount_ugx)
@@ -492,6 +522,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerPromotionRoutes(app);
   registerGroupRoutes(app);
   registerTimetableRoutes(app);
+  registerStaffAssignmentRoutes(app);
 
   return createServer(app);
 }

@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import pool from "../db";
+import { canUserRecordMarksForClassSubject } from "./staffAssignments";
 
 export function registerMarksRoutes(app: Express) {
   app.get("/api/marks", async (req, res) => {
@@ -34,16 +35,19 @@ export function registerMarksRoutes(app: Express) {
       if (!Array.isArray(entries) || !examId || !subjectId || !classId || !schoolId)
         return res.status(400).json({ message: "Missing required fields" });
 
-      // Guard: subject teachers can only save marks for subjects assigned to them
+      // Guard: class/subject assignments + legacy subjects.teacher_id (admin/director/HT bypass)
       if (recordedBy) {
-        const userRow = await pool.query('SELECT role FROM users WHERE id=$1', [recordedBy]);
-        const userRole = userRow.rows[0]?.role;
-        if (userRole === 'subject_teacher') {
-          const subjectRow = await pool.query('SELECT teacher_id FROM subjects WHERE id=$1', [subjectId]);
-          const assignedTeacher = subjectRow.rows[0]?.teacher_id;
-          if (assignedTeacher && assignedTeacher !== recordedBy) {
-            return res.status(403).json({ message: "You are not assigned to teach this subject" });
-          }
+        const allowed = await canUserRecordMarksForClassSubject(
+          String(recordedBy),
+          String(subjectId),
+          String(classId),
+          String(schoolId)
+        );
+        if (!allowed) {
+          return res.status(403).json({
+            message:
+              "You are not allowed to record marks for this class/subject. Ask admin, director, or head teacher to add a class-teacher or subject-class assignment for you.",
+          });
         }
       }
       const results = [];
@@ -156,6 +160,17 @@ export function registerMarksRoutes(app: Express) {
   app.post("/api/marks", async (req, res) => {
     try {
       const { studentId, examId, subjectId, classId, schoolId, marksObtained, totalMarks, grade, remarks, recordedBy, term, academicYear } = req.body;
+      if (recordedBy) {
+        const allowed = await canUserRecordMarksForClassSubject(
+          String(recordedBy),
+          String(subjectId),
+          String(classId),
+          String(schoolId)
+        );
+        if (!allowed) {
+          return res.status(403).json({ message: "Not allowed to record marks for this class/subject" });
+        }
+      }
       const result = await pool.query(
         `INSERT INTO marks (student_id, exam_id, subject_id, class_id, school_id, marks_obtained, total_marks, grade, remarks, recorded_by, term, academic_year)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
